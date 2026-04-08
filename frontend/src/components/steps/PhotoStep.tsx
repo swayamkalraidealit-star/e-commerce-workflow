@@ -4,7 +4,7 @@ import { generateVideo, proxyImageUrl } from '../../lib/api';
 import Loader from '../Loader';
 
 export default function PhotoStep() {
-  const { enhancedName, enhancedDesc, imageUrl, uniqueKey, setVideo, setLoading, setError, setStep, loading, error } = useStore();
+  const { enhancedName, enhancedDesc, imageUrl, videoUrl, uniqueKey, setVideo, setLoading, setError, setStep, loading, error } = useStore();
   const [sublabel, setSublabel] = useState('Rendering product video — this handles heavy GPU tasks and may take 5 to 10 minutes. Please do not close this window.');
   const [imgErr, setImgErr] = useState(false);
   const proxied = imageUrl ? proxyImageUrl(imageUrl) : null;
@@ -71,8 +71,17 @@ export default function PhotoStep() {
           </div>
         </div>
         <div className="proceed-bar">
-          <div className="proceed-text">Photo generated. <strong>Proceed to produce the product video.</strong></div>
-          <button className="btn btn-accent" onClick={handleGenerateVideo}>Generate Video</button>
+          {videoUrl ? (
+            <>
+              <div className="proceed-text">Video generated successfully. <strong>Ready for publishing.</strong></div>
+              <button className="btn btn-accent" onClick={() => setStep(4)}>View Generated Video</button>
+            </>
+          ) : (
+            <>
+              <div className="proceed-text">Photo generated. <strong>Proceed to produce the product video.</strong></div>
+              <button className="btn btn-accent" onClick={handleGenerateVideo}>Generate Video</button>
+            </>
+          )}
         </div>
       </div>
     </div>

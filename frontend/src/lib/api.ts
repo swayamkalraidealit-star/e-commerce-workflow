@@ -19,7 +19,8 @@ export interface ImageResponse {
 }
 
 export interface VideoResponse {
-  video_url: string;
+  status?: string;
+  video_url?: string;
   unique_key: string;
 }
 
@@ -43,6 +44,9 @@ export const generateVideo = (data: {
   image_url?: string | null;
   unique_key: string;
 }) => api.post<VideoResponse>('/api/generate/video', data).then((r) => r.data);
+
+export const checkVideoStatus = (uniqueKey: string) => 
+  api.get<VideoResponse>(`/api/status/video/${uniqueKey}`).then((r) => r.data);
 
 export const publish = (data: {
   product_name: string;

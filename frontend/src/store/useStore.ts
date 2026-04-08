@@ -48,7 +48,7 @@ export const useStore = create<ProductState>((set) => ({
   setDescription: (enhancedName, enhancedDesc, uniqueKey) =>
     set({ enhancedName, enhancedDesc, uniqueKey, step: 2 }),
   setImage: (imageUrl, uniqueKey) => set({ imageUrl, uniqueKey, step: 3 }),
-  setVideo: (videoUrl, uniqueKey) => set({ videoUrl, uniqueKey, step: 4 }),
+  setVideo: (videoUrl: string, uniqueKey: string) => set({ videoUrl, uniqueKey }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
   reset: () => set({ ...initial }),
