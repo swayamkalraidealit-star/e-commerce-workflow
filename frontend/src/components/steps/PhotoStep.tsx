@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { generateVideo, proxyImageUrl } from '../../lib/api';
+import { generateVideo, checkVideoStatus, proxyImageUrl } from '../../lib/api';
 import Loader from '../Loader';
 
 export default function PhotoStep() {
@@ -8,22 +8,52 @@ export default function PhotoStep() {
   const [sublabel, setSublabel] = useState('Rendering product video — this handles heavy GPU tasks and may take 5 to 10 minutes. Please do not close this window.');
   const [imgErr, setImgErr] = useState(false);
   const proxied = imageUrl ? proxyImageUrl(imageUrl) : null;
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Stop polling on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const startPolling = (key: string) => {
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await checkVideoStatus(key);
+        if (status.status === 'completed' && status.video_url) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setVideo(status.video_url, key);
+          setLoading(false);
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 10_000);
+  };
 
   const handleGenerateVideo = async () => {
     if (!uniqueKey) return;
     setError(null);
     setLoading(true);
-    const t = setTimeout(() => setSublabel('GPU processing is still running... It may take a few more minutes.'), 180_000);
+
+    const longWait = setTimeout(
+      () => setSublabel('GPU processing is still running... It may take a few more minutes.'),
+      180_000,
+    );
+
     try {
-      const res = await generateVideo({ product_name: enhancedName, description: enhancedDesc, image_url: imageUrl, unique_key: uniqueKey });
-      clearTimeout(t);
-      setVideo(res.video_url || '', res.unique_key);
+      await generateVideo({
+        product_name: enhancedName,
+        description: enhancedDesc,
+        image_url: imageUrl,
+        unique_key: uniqueKey,
+      });
+      clearTimeout(longWait);
+      // n8n video generation is async — poll for completion
+      startPolling(uniqueKey);
     } catch (err: any) {
-      clearTimeout(t);
-      setError(err?.response?.data?.detail || err.message || 'Video generation failed');
-      setStep(3);
-    } finally {
+      clearTimeout(longWait);
       setLoading(false);
+      setError(err?.message || 'Video generation failed');
+      setStep(3);
     }
   };
 
