@@ -2,7 +2,7 @@
 const N8N_DESCRIPTION   = 'https://n8n.intelligens.app/webhook/description';
 const N8N_IMAGE         = 'https://n8n.intelligens.app/webhook/image';
 const N8N_VIDEO         = 'https://n8n.intelligens.app/webhook/video';
-const N8N_VIDEO_STATUS  = 'https://n8n.intelligens.app/webhook/video-status';
+const N8N_VIDEO_CHECK   = 'https://n8n.intelligens.app/webhook/46b12c54-26ae-4809-ad71-dc84ef802325';
 const N8N_PUBLISH       = 'https://n8n.intelligens.app/webhook/publish';
 
 // ── Response parser (port of backend/parser.py) ────────────────────────────
@@ -37,15 +37,51 @@ function getVal(obj: Record<string, unknown>, keys: string[], defaultVal?: unkno
   return defaultVal;
 }
 
-function resolveImageUrl(output: Record<string, unknown>, raw: Record<string, unknown>): string | undefined {
-  let url = getVal(output, ['image_url', 'image url', 'imageUrl', 'image', 'secure_url', 'url'],
-              getVal(raw,    ['image_url', 'image url', 'imageUrl', 'image', 'secure_url', 'url'])) as unknown;
+function resolveString(
+  output: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  const value = getVal(output, keys, getVal(raw, keys));
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function resolveMediaUrl(
+  output: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  let url = getVal(output, keys, getVal(raw, keys)) as unknown;
   if (Array.isArray(url) && url.length > 0) url = url[0];
   if (url && typeof url === 'object') {
     const u = url as Record<string, unknown>;
     url = u.secure_url ?? u.url ?? String(url);
   }
   return typeof url === 'string' ? url : undefined;
+}
+
+function resolveImageUrl(output: Record<string, unknown>, raw: Record<string, unknown>): string | undefined {
+  return resolveMediaUrl(output, raw, ['image_url', 'image url', 'imageUrl', 'image', 'secure_url', 'url']);
+}
+
+function resolveVideoUrl(output: Record<string, unknown>, raw: Record<string, unknown>): string | undefined {
+  return resolveMediaUrl(output, raw, ['video_url', 'video url', 'videoUrl', 'video', 'secure_url', 'url']);
+}
+
+async function parseResponseData(res: Response): Promise<[Record<string, unknown>, Record<string, unknown>]> {
+  const text = await res.text();
+  let raw: unknown = {};
+
+  if (text.trim()) {
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      throw new Error(`n8n returned invalid JSON: ${text.slice(0, 200)}`);
+    }
+  }
+
+  const rawDict: Record<string, unknown> = Array.isArray(raw) ? (raw[0] ?? {}) : ((raw as Record<string, unknown>) ?? {});
+  return [parseWebhookResponse(raw), rawDict];
 }
 
 async function callN8n(
@@ -65,15 +101,7 @@ async function callN8n(
     throw new Error(`n8n error ${res.status}: ${text}`);
   }
 
-  const text = await res.text();
-  let raw: unknown = {};
-  if (text.trim()) {
-    try { raw = JSON.parse(text); } catch {
-      throw new Error(`n8n returned invalid JSON: ${text.slice(0, 200)}`);
-    }
-  }
-  const rawDict: Record<string, unknown> = Array.isArray(raw) ? (raw[0] ?? {}) : ((raw as Record<string, unknown>) ?? {});
-  return [parseWebhookResponse(raw), rawDict];
+  return parseResponseData(res);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -96,6 +124,15 @@ export interface VideoResponse {
   unique_key: string;
 }
 
+export interface PublishResponse {
+  status?: string;
+  message?: string;
+  product_url?: string;
+  image_url?: string;
+  video_url?: string;
+  unique_key: string;
+}
+
 export async function generateDescription(data: {
   product_name?: string;
   description?: string;
@@ -103,6 +140,10 @@ export async function generateDescription(data: {
   file_name?: string | null;
   unique_key?: string;
 }): Promise<DescriptionResponse> {
+  const requestUniqueKey =
+    typeof data.unique_key === 'string' && data.unique_key.trim()
+      ? data.unique_key
+      : crypto.randomUUID();
   let body: FormData | Record<string, unknown>;
 
   if (data.image_base64) {
@@ -121,7 +162,7 @@ export async function generateDescription(data: {
     fd.append('workflow', 'description');
     fd.append('product_name', data.product_name ?? '');
     fd.append('description', data.description ?? '');
-    fd.append('unique_key', data.unique_key ?? '');
+    fd.append('unique_key', requestUniqueKey);
     fd.append('image_base64', data.image_base64);
     fd.append('file_name', data.file_name ?? 'uploaded_image.jpg');
     fd.append('file', blob, data.file_name ?? 'uploaded_image.jpg');
@@ -131,14 +172,14 @@ export async function generateDescription(data: {
       workflow: 'description',
       product_name: data.product_name ?? '',
       description: data.description ?? '',
-      unique_key: data.unique_key ?? '',
+      unique_key: requestUniqueKey,
     };
   }
 
   const [output, rawDict] = await callN8n(N8N_DESCRIPTION, body);
 
   const uniqueKey = (getVal(output, ['unique_key', 'unique key', 'uniqueKey'],
-                     getVal(rawDict, ['unique_key', 'unique key'], data.unique_key)) ?? data.unique_key ?? crypto.randomUUID()) as string;
+                     getVal(rawDict, ['unique_key', 'unique key'], requestUniqueKey)) ?? requestUniqueKey) as string;
 
   return {
     product_name: (getVal(output, ['title', 'product_name', 'product name', 'name'], data.product_name) ?? data.product_name ?? '') as string,
@@ -174,7 +215,7 @@ export async function generateVideo(data: {
   image_url?: string | null;
   unique_key: string;
 }): Promise<VideoResponse> {
-  await callN8n(N8N_VIDEO, {
+  const [output, rawDict] = await callN8n(N8N_VIDEO, {
     workflow: 'video',
     product_name: data.product_name,
     description: data.description,
@@ -182,18 +223,20 @@ export async function generateVideo(data: {
     unique_key: data.unique_key,
   });
 
-  return { status: 'processing', unique_key: data.unique_key };
+  const uniqueKey = (getVal(output, ['unique_key', 'unique key', 'uniqueKey'],
+                     getVal(rawDict, ['unique_key', 'unique key'], data.unique_key)) ?? data.unique_key) as string;
+  const videoUrl = resolveVideoUrl(output, rawDict);
+  const status = resolveString(output, rawDict, ['status', 'state']) ?? (videoUrl ? 'completed' : 'processing');
+
+  return { status, video_url: videoUrl, unique_key: uniqueKey };
 }
 
 export async function checkVideoStatus(uniqueKey: string): Promise<VideoResponse> {
-  const res = await fetch(`${N8N_VIDEO_STATUS}?unique_key=${encodeURIComponent(uniqueKey)}`);
+  const res = await fetch(`${N8N_VIDEO_CHECK}?unique_key=${encodeURIComponent(uniqueKey)}`);
   if (!res.ok) return { status: 'processing', unique_key: uniqueKey };
-  const raw = await res.json();
-  const rawDict: Record<string, unknown> = Array.isArray(raw) ? (raw[0] ?? {}) : (raw ?? {});
-  const output = parseWebhookResponse(raw);
-  const status = (getVal(output, ['status'], getVal(rawDict, ['status'], 'processing')) ?? 'processing') as string;
-  const videoUrl = (getVal(output, ['video_url', 'video url', 'videoUrl', 'url'],
-                    getVal(rawDict, ['video_url', 'video url', 'videoUrl', 'url']))) as string | undefined;
+  const [output, rawDict] = await parseResponseData(res);
+  const videoUrl = resolveVideoUrl(output, rawDict);
+  const status = resolveString(output, rawDict, ['status', 'state']) ?? (videoUrl ? 'completed' : 'processing');
   return { status, video_url: videoUrl, unique_key: uniqueKey };
 }
 
@@ -202,16 +245,26 @@ export async function publish(data: {
   description: string;
   image_url?: string | null;
   video_url?: string | null;
-  unique_key: string;
-}): Promise<void> {
-  await callN8n(N8N_PUBLISH, {
+}): Promise<PublishResponse> {
+  const [output, rawDict] = await callN8n(N8N_PUBLISH, {
     workflow: 'publish',
     product_name: data.product_name,
     description: data.description,
     image_url: data.image_url ?? '',
     video_url: data.video_url ?? '',
-    unique_key: data.unique_key,
   });
+
+  const uniqueKey = (getVal(output, ['unique_key', 'unique key', 'uniqueKey'],
+                     getVal(rawDict, ['unique_key', 'unique key'], '')) ?? '') as string;
+
+  return {
+    status: resolveString(output, rawDict, ['status', 'state', 'result']) ?? 'published',
+    message: resolveString(output, rawDict, ['message', 'detail', 'summary', 'result_message']),
+    product_url: resolveString(output, rawDict, ['product_url', 'product url', 'product link', 'productLink', 'store_url', 'store url', 'listing_url', 'listing url', 'published_url', 'published url', 'link']),
+    image_url: resolveImageUrl(output, rawDict),
+    video_url: resolveVideoUrl(output, rawDict),
+    unique_key: uniqueKey,
+  };
 }
 
 export function proxyImageUrl(url: string): string {

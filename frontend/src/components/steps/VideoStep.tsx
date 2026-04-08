@@ -3,19 +3,39 @@ import { useStore } from '../../store/useStore';
 import { publish, proxyImageUrl } from '../../lib/api';
 
 export default function VideoStep() {
-  const { enhancedName, enhancedDesc, imageUrl, videoUrl, uniqueKey, setStep, setError, reset, error } = useStore();
+  const { enhancedName, enhancedDesc, imageUrl, videoUrl, uniqueKey, setStep, setError, setPublishResult, setProgressStep, reset, error } = useStore();
   const [published, setPublished] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const proxied = imageUrl ? proxyImageUrl(imageUrl) : null;
+  const canPublish = Boolean(uniqueKey && imageUrl && videoUrl);
 
   const handlePublish = async () => {
-    if (!uniqueKey) return;
+    if (!uniqueKey || !canPublish) {
+      setError('Wait for the image and video webhook output before publishing.');
+      return;
+    }
     setError(null);
+    setProgressStep(5);
+    setPublishing(true);
     try {
-      await publish({ product_name: enhancedName, description: enhancedDesc, image_url: imageUrl, video_url: videoUrl, unique_key: uniqueKey });
+      const res = await publish({
+        product_name: enhancedName,
+        description: enhancedDesc,
+        image_url: imageUrl,
+        video_url: videoUrl,
+      });
+      setPublishResult(res.product_url ?? null, res.message ?? null, res.status ?? null);
+      useStore.setState({
+        imageUrl: res.image_url ?? imageUrl,
+        videoUrl: res.video_url ?? videoUrl,
+      });
       setPublished(true);
       setStep(5);
     } catch (err: any) {
+      setProgressStep(4);
       setError(err?.response?.data?.detail || err.message || 'Publish failed');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -74,6 +94,11 @@ export default function VideoStep() {
                   </>
                 )}
               </div>
+              {videoUrl && (
+                <a className="video-output-link" href={videoUrl} target="_blank" rel="noreferrer">
+                  Open Video URL
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -82,8 +107,8 @@ export default function VideoStep() {
           <div className="pub-note">Once published, your product listing with AI-generated description, image, and video will go live on your storefront.</div>
           <div className="btn-group">
             <button className="btn" onClick={reset}>Start Over</button>
-            <button className="btn btn-publish-final" onClick={handlePublish} disabled={published}>
-              {published ? 'Published' : 'Publish to Store'}
+            <button className="btn btn-publish-final" onClick={handlePublish} disabled={published || publishing || !canPublish}>
+              {published ? 'Published' : publishing ? 'Publishing...' : canPublish ? 'Publish to Store' : 'Waiting on Assets'}
             </button>
           </div>
         </div>

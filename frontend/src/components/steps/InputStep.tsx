@@ -4,7 +4,7 @@ import { generateDescription } from '../../lib/api';
 import Loader from '../Loader';
 
 export default function InputStep() {
-  const { setInput, setDescription, setLoading, setError, loading, error } = useStore();
+  const { setInput, setDescription, setLoading, setError, setProgressStep, loading, error } = useStore();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [imageBase64, setImageBase64] = useState<string | null>(null);
@@ -14,7 +14,15 @@ export default function InputStep() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFileName(null);
+      setImageBase64(null);
+      setError('Please upload an image file.');
+      e.target.value = '';
+      return;
+    }
     setFileName(file.name);
+    setError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       setImageBase64(event.target?.result as string);
@@ -23,21 +31,24 @@ export default function InputStep() {
   };
 
   const handleSubmit = async () => {
+    if (!name.trim() && !desc.trim() && !imageBase64) {
+      setError('Add a product name, description, or image before running the workflow.');
+      return;
+    }
     setError(null);
-    setLoading(true);
     setInput(name, desc, imageBase64);
+    setProgressStep(2);
+    setLoading(true);
     try {
-      const res = await generateDescription({ 
-        product_name: name, 
-        description: desc, 
+      const res = await generateDescription({
+        product_name: name,
+        description: desc,
         image_base64: imageBase64,
-        file_name: fileName
+        file_name: fileName,
       });
-      setDescription(res.product_name, res.description, res.unique_key);
-      if (res.image_url) {
-        useStore.setState({ imageUrl: res.image_url });
-      }
+      setDescription(res.product_name, res.description, res.unique_key, res.image_url ?? null);
     } catch (err: any) {
+      setProgressStep(1);
       setError(err?.response?.data?.detail || err.message || 'Failed to reach workflow');
     } finally {
       setLoading(false);
@@ -120,12 +131,13 @@ export default function InputStep() {
       <div className="action-row">
         <div className="action-hint">Provide any combination of inputs.</div>
         <div className="btn-group">
-          <button className="btn" onClick={() => { 
-            setName(''); 
-            setDesc(''); 
-            setImageBase64(null); 
-            setFileName(null); 
-            setError(null); 
+          <button className="btn" onClick={() => {
+            setName('');
+            setDesc('');
+            setImageBase64(null);
+            setFileName(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            setError(null);
           }}>Reset</button>
           <button className="btn btn-primary" onClick={handleSubmit}>Generate Description</button>
         </div>
