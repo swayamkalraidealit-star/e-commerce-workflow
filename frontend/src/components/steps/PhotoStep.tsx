@@ -17,7 +17,7 @@ export default function PhotoStep() {
     try {
       const res = await generateVideo({ product_name: enhancedName, description: enhancedDesc, image_url: imageUrl, unique_key: uniqueKey });
       clearTimeout(t);
-      setVideo(res.video_url, res.unique_key);
+      setVideo(res.video_url || '', res.unique_key);
     } catch (err: any) {
       clearTimeout(t);
       setError(err?.response?.data?.detail || err.message || 'Video generation failed');
