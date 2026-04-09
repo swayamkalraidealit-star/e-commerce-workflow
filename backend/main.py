@@ -160,22 +160,29 @@ async def generate_image(body: GenerateImageRequest):
 
 @app.post("/api/generate/video")
 async def generate_video(body: GenerateVideoRequest):
-    """Step 3: Trigger AI product video via n8n (async polling architecture)."""
-    # Fire the webhook to n8n. If n8n is configured to "Respond Immediately",
-    # this will unblock right away, leaving the generation to happen in the background.
-    try:
-        await call_n8n(N8N_VIDEO, {
-            "workflow": "video",
-            "product_name": body.product_name,
-            "description": body.description,
-            "image_url": body.image_url,
-            "unique_key": body.unique_key,
-        })
-    except Exception as e:
-        # Ignore timeout/read errors here since we are doing async polling now
-        pass
+    """Step 3: Generate AI product video via n8n synchronously."""
+    output, raw = await call_n8n(N8N_VIDEO, {
+        "workflow": "video",
+        "product_name": body.product_name,
+        "description": body.description,
+        "image_url": body.image_url,
+        "unique_key": body.unique_key,
+    })
 
-    return {"status": "processing", "unique_key": body.unique_key}
+    raw_dict = raw[0] if isinstance(raw, list) and raw else raw if isinstance(raw, dict) else {}
+    
+    video_url = get_val(output, ["video_url", "video url", "videoUrl", "video", "secure_url", "url"],
+                    get_val(raw_dict, ["video_url", "video url", "videoUrl", "video", "secure_url", "url"]))
+    
+    if isinstance(video_url, list) and video_url:
+        video_url = video_url[0]
+    if isinstance(video_url, dict):
+        video_url = video_url.get("secure_url") or video_url.get("url") or str(video_url)
+
+    key = get_val(output, ["unique_key", "unique key", "uniqueKey"],
+                  get_val(raw_dict, ["unique_key", "unique key"], body.unique_key))
+
+    return {"video_url": video_url, "unique_key": key}
 
 
 @app.post("/api/webhook/video-complete")

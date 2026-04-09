@@ -57,10 +57,8 @@ export const publish = (data: {
 }) => api.post('/api/publish', data).then((r) => r.data);
 
 export const proxyImageUrl = (url: string) => {
-  if (typeof url !== 'string') return '';
-  if (url.includes('drive.google') || url.includes('googleusercontent')) {
-    return `http://localhost:8000/api/proxy/image?url=${encodeURIComponent(url)}`;
-  }
+  // We no longer need the backend proxy because Google Drive/Cloudinary 
+  // correctly serve CORS and standardized image formats natively.
   return url;
 };
 
